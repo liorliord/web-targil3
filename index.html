@@ -1,0 +1,245 @@
+
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
+  <title>Chess Template</title>
+  <link rel="stylesheet" href="css/chessboard.css" />
+  <link rel="stylesheet" href="css/style.css" />
+  <audio>
+	<source src="sounds/move.mp3"></source>
+	<source src="sounds/yahoo.mp3"></source>
+  </audio>
+</head>
+<body>
+
+<script src="js/chess.js"></script>
+<a id="signOut" style="position: absolute; top: 20px; left: 20px; font-size: 20px;">sign out</a>
+<div id="time"></div>
+<div id="board"></div>
+<div id="result"></div>
+<div id="player1" style="float: left"></div>
+<div id="player2" style="float: right"></div>
+<script src="js/json3.min.js"></script>
+<script src="js/jquery-1.10.1.min.js"></script>
+<script src="js/chessboard.js"></script>
+
+<script src="https://www.gstatic.com/firebasejs/5.7.0/firebase.js"></script>
+<script>
+    // Initialize Firebase
+    var config = {
+        apiKey: "AIzaSyD4DBymyOfoZVwoCtqJ7DOF8Pp5zSpDp9I",
+        authDomain: "liorcheckmate.firebaseapp.com",
+        databaseURL: "https://liorcheckmate.firebaseio.com",
+        projectId: "liorcheckmate",
+        storageBucket: "liorcheckmate.appspot.com",
+        messagingSenderId: "426466137993"
+    };
+    firebase.initializeApp(config);
+</script>
+  <script>
+
+      var t;
+      function timer() {
+          $("#time").html("TIME LEFT: " + timeLeft--);
+          if (timeLeft === 0) {
+              firebase.database().ref().update({
+                  status : "TIME HAS ENDED!!!!"
+              }).then (function(){
+                  clearInterval(this);
+                  setTimeout($("#signOut").trigger("click"), 10000);
+              });
+          }
+      }
+  firebase.auth().onAuthStateChanged(function(user) {
+			if (user) {
+				//still connected
+			} else {
+				//location.href = "login.html";
+			}
+		});
+
+  firebase.database().ref().child('white').on('value', function(snapshot) {
+      $("#player1").html("white player:"+snapshot.val());
+  });
+  firebase.database().ref().child('black').on('value', function(snapshot) {
+      $("#player2").html("black player:"+snapshot.val());
+  });
+
+
+  console.log(firebase.auth().currentUser); //get the user info any time
+
+  // firebase.database().ref().child('fen').on('value', function(snapshot) {
+  //     position=snapshot.val();
+  //     init();
+  // }
+  $("#signOut").click(function(){
+	firebase.auth().signOut().then(function() {
+        firebase.database().ref().once('value').then(function(snapshot) {
+            if ((localStorage.email === snapshot.child('black').val())||(localStorage.email === snapshot.child('white').val())) {
+                firebase.database().ref().update({
+                    status: localStorage.email + "has left. Game has ended",
+                    conPlayers : 0,
+                    black : "",
+                    white: ""
+                }).then(function(){
+                    location.href = "login.html";
+                }).catch(function(error){
+                })
+            } else {
+                location.href = "login.html";
+            }
+        });
+		// Sign-out successful.
+	}).catch(function(error) {
+		// An error happened.
+	});
+  });
+
+  // firebase.database().ref().child('message').on('value', function(snapshot) {
+  // });
+
+</script>
+
+
+
+<script>
+
+    firebase.database().ref().child('status').on('value', function(snapshot) {
+        $("#result").html(snapshot.val());
+    });
+
+
+    firebase.database().ref().child('turn').on('value', function(snapshot) {
+        if(snapshot.val() === 'white' )
+            turn = 'w';
+        else{
+            turn='b';
+        }
+        timeLeft = 60;
+        if (snapshot.val() === localStorage.color) {
+            t = setInterval(timer, 1000);
+        } else {
+            $("#time").html("");
+            clearInterval(t);
+        }
+    });
+
+// var position = 'start';
+
+var init = function() {
+        var board,
+            game = new Chess(position === 'start' ? undefined : position);
+// do not pick up pieces if the game is over
+// only pick up pieces for the side to move
+
+
+        var onDragStart = function (source, piece, position, orientation) {
+            if(game.game_over() || localStorage.email==='viewer'){
+                return;
+            }
+
+            firebase.database().ref().child('turn').once('value').then(function(snapshot) {
+                if (localStorage.color !== snapshot.val() ||
+                    (localStorage.color === 'white' && piece.search(/^b/) !== -1) ||
+                    (localStorage.color === 'black' && piece.search(/^w/) !== -1)) {
+                    return;
+                }
+            });
+        };
+
+        var onDrop = function (source, target) {
+            // see if the move is legal
+            var move = game.move({
+                from: source,
+                to: target,
+                promotion: 'q' // NOTE: always promote to a queen for example simplicity
+            });
+
+            // illegal move
+            if (move === null) return 'snapback';
+
+            firebase.database().ref().update({
+                turn: turn === 'b' ? 'white' : 'black'
+            });
+
+            updateStatus();
+            $("audio")[0].play();
+        };
+
+// update the board position after the piece snap 
+// for castling, en passant, pawn promotion
+        var onSnapEnd = function () {
+            board.position(game.fen());
+        };
+
+        var updateStatus = function () {
+            var status = '';
+
+            var moveColor = 'White';
+            if (game.turn() === 'b') {
+                moveColor = 'Black';
+            }
+
+            // checkmate?
+            if (game.in_checkmate() === true) {
+                //$("audio")[1].play()
+                new Audio('./sounds/yahoo.mp3').play();
+                status = 'Game over, ' + (moveColor === 'White' ? 'Black' : 'White') + ' won.';
+            }
+
+            // draw?
+            else if (game.in_draw() === true) {
+                status = 'Game over, drawn position';
+            }
+
+            // game still on
+            else {
+                status = moveColor + ' to move';
+
+                // check?
+                if (game.in_check() === true) {
+                    status += ', ' + moveColor + ' is in check';
+                }
+            }
+            firebase.database().ref().update({
+                fen: game.fen(),
+                status     : status
+            });
+            $("#result").html(status);
+            console.log(game.fen());
+            console.log(game.pgn());
+        };
+
+        var cfg = {
+            draggable: true,
+            position: position,
+            onDragStart: onDragStart,
+            onDrop: onDrop,
+            onSnapEnd: onSnapEnd
+        };
+
+        board = ChessBoard('board', cfg);
+        updateStatus();
+
+}; // end init()
+
+    var position = 'start';
+    var newGame = function() {
+        if ("undefined" === localStorage.email) {
+            location.href = 'login.html';
+            return;
+        }
+        init();
+    };
+    firebase.database().ref().child('fen').on('value', function(snapshot) {
+        position = snapshot.val();
+        init();
+    });
+
+$(document).ready(newGame);
+
+</script>
+</body>
+</html>
